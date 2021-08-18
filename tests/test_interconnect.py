@@ -6,7 +6,7 @@ from migen.sim import run_simulation
 from misoc.interconnect import csr_bus
 import pytest
 from migen_axi.interconnect import *  # noqa
-from migen_axi.interconnect import dmac_bus, stream2axi
+from migen_axi.interconnect import dmac_bus, stream2axi, sram
 from .common import write_ack, wait_stb, ack, csr_w_mon, file_tmp_folder
 
 
@@ -66,6 +66,7 @@ def test_response(attr, value):
         8,
         16,
     ])
+
 def test_axi2csr(data_width):
     dut = AXI2CSR(bus_csr=csr_bus.Interface(data_width=data_width))
     dut.submodules.sram = csr_bus.SRAM(
@@ -147,6 +148,80 @@ def test_axi2csr(data_width):
 
     run_simulation(dut, testbench_axi2csr(),
                    vcd_name=file_tmp_folder("test_axi2csr.vcd"))
+
+
+def test_sram():
+    # most of the code was copied from CSR, as it also tests SRAM
+    # just with a different interface
+
+    dut = sram.SRAM(0x100, read_only=False, bus=axi.Interface())
+    write_aw = partial(
+        dut.bus.write_aw,
+        size=burst_size(len(dut.bus.w.data) // 8), len_=0,
+        burst=Burst.fixed)
+    write_w = dut.bus.write_w
+    read_b = dut.bus.read_b
+    write_ar = partial(
+        dut.bus.write_ar,
+        size=burst_size(len(dut.bus.r.data) // 8), len_=0,
+        burst=Burst.fixed)
+    read_r = dut.bus.read_r
+    w_mon = partial(csr_w_mon, dut.port)  # it's not csr but interface is identical
+
+    def testbench_sram():
+        i = dut.bus
+
+        def aw_channel():
+            yield from write_aw(0x01, 0x00)
+            assert (yield i.aw.ready) == 1
+            yield from write_aw(0x02, 0x04)
+            yield from write_aw(0x03, 0x08)
+            yield from write_aw(0x04, 0x0c)
+            yield from write_aw(0x05, 0x40)
+
+        def w_channel():
+            yield from write_w(0, 0x11, strb=1)
+            yield from write_w(0, 0x22, strb=1)
+            yield from write_w(0, 0x33, strb=1)
+            yield from write_w(0, 0x44, strb=1)
+            yield from write_w(0, 0x11223344)
+
+        def b_channel():
+            assert attrgetter_b((yield from read_b())) == (0x01, okay)
+            assert attrgetter_b((yield from read_b())) == (0x03, okay)
+            assert attrgetter_b((yield from read_b())) == (0x03, okay)
+            assert attrgetter_b((yield from read_b())) == (0x04, okay)
+            assert attrgetter_b((yield from read_b())) == (0x05, okay)
+
+        def ar_channel():
+            # ensure data was actually written
+            assert attrgetter_csr_w_mon((yield from w_mon())) == (0x00, 0x11)
+            assert attrgetter_csr_w_mon((yield from w_mon())) == (0x01, 0x22)
+            assert attrgetter_csr_w_mon((yield from w_mon())) == (0x02, 0x33)
+            assert attrgetter_csr_w_mon((yield from w_mon())) == (0x03, 0x44)
+            assert attrgetter_csr_w_mon(
+                (yield from w_mon())) == (0x10, 0x3344)
+            # ok, read it now
+            yield from write_ar(0x11, 0x00)
+            yield from write_ar(0x22, 0x04)
+            yield from write_ar(0x33, 0x08)
+            yield from write_ar(0x44, 0x0c)
+            yield from write_ar(0x55, 0x40)
+
+        def r_channel():
+            assert attrgetter_r((yield from read_r())) == (0x11, 0x11, okay, 1)
+            assert attrgetter_r((yield from read_r())) == (0x22, 0x22, okay, 1)
+            assert attrgetter_r((yield from read_r())) == (0x33, 0x33, okay, 1)
+            assert attrgetter_r((yield from read_r())) == (0x44, 0x44, okay, 1)
+            assert attrgetter_r((yield from read_r())) == (
+                0x55, 0x3344, okay, 1)
+
+        return [
+                aw_channel(), w_channel(), b_channel(), r_channel(), ar_channel(),
+            ]
+
+    run_simulation(dut, testbench_sram(),
+                vcd_name=file_tmp_folder("test_sram.vcd"))
 
 
 def test_read_requester():
