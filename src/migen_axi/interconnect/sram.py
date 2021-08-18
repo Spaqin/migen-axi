@@ -45,22 +45,23 @@ class SRAM(Module):
 
         self.comb += [
             r.id.eq(id_),
-            b.id.eq(id_),
             r.resp.eq(axi.Response.okay),
-            b.resp.eq(axi.Response.okay),
         ]
 
         # read control
         self.submodules.read_fsm = read_fsm = FSM(reset_state="IDLE")
         read_fsm.act("IDLE",
+            dout_index.eq(0),
+            r.valid.eq(0),  # shall it be reset too on IDLE?
+            r.last.eq(0),
+            # ar.ready.eq(0),
             If(ar.valid,
-                ar.ready.eq(1),
+                NextValue(ar.ready, 1),
                 NextValue(id_, ar.id),
                 NextState("READ_START"),
             )
         )
         read_fsm.act("READ_START",
-            r.resp.eq(axi.Response.okay),
             r.valid.eq(1),
             If(r.ready,
                 NextState("READ"))
@@ -72,16 +73,11 @@ class SRAM(Module):
         )
 
         self.sync += [
-            If(read_fsm.ongoing("IDLE"),
-                dout_index.eq(0),
-                r.valid.eq(0),  # shall it be reset too on IDLE?
-                ar.ready.eq(0),
-                r.last.eq(0)
-            ).Else(If(r.ready & read_fsm.ongoing("READ"),
+            If(r.ready & read_fsm.ongoing("READ"),
                     dout_index.eq(dout_index+1),
                     If(dout_index==ar.len, r.last.eq(1)) # and update last
-                )
             )
+
         ]
 
         ### Write
@@ -90,6 +86,8 @@ class SRAM(Module):
             self.comb += [
                 port.dat_w.eq(w.data),
                 port.adr.eq(self.w_addr_incr.addr),
+                b.id.eq(id_),
+                b.resp.eq(axi.Response.okay),
             ]
 
             self.submodules.write_fsm = write_fsm = FSM(reset_state="IDLE")
@@ -102,33 +100,25 @@ class SRAM(Module):
                     NextState("AW_VALID_WAIT")
                 )
             )
+
             write_fsm.act("AW_VALID_WAIT",  # wait for data
                 aw.ready.eq(1),
                 If(w.valid,
                     NextState("WRITE"),
                 )
             )
-            # write_fsm.act("DATA_WAIT",
-            #     aw.valid.eq(0),
-            #     If(self.din_ready,
-            #         w.valid.eq(1),
-            #         NextState("WRITE")
-            #     )
-            # )
+
             write_fsm.act("WRITE",
                 w.ready.eq(1),
+                port.we.eq(0xF),
                 If(w.ready & w.last,
                     NextState("WRITE_RESP")
                 )
             )
 
             write_fsm.act("WRITE_RESP",
-                port.we.eq(0),
-                b.resp.eq(axi.Response.okay),
                 b.valid.eq(1),
                 If(b.ready,
                     NextState("IDLE")
                 )
             )
-
-            self.sync += If(w.ready & w.valid, port.we.eq(0xF))
