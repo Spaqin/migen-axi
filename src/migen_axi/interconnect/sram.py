@@ -33,14 +33,15 @@ class SRAM(Module):
 
         dout_index = Signal.like(ar.len)
 
-        self.r_addr_incr = axi.Incr(ar)
-        self.w_addr_incr = axi.Incr(aw)
+        # todo: add support for bursts
+        # self.r_addr_incr = axi.Incr(ar)
+        # self.w_addr_incr = axi.Incr(aw)
 
         ### Read
 
         self.sync += [
             r.data.eq(port.dat_r),
-            port.adr.eq(self.r_addr_incr.addr)
+            port.adr.eq(ar.addr)
         ]
 
         self.comb += [
@@ -85,7 +86,6 @@ class SRAM(Module):
         if not read_only:
             self.comb += [
                 port.dat_w.eq(w.data),
-                port.adr.eq(self.w_addr_incr.addr),
                 b.id.eq(id_),
                 b.resp.eq(axi.Response.okay),
             ]
@@ -104,6 +104,7 @@ class SRAM(Module):
             write_fsm.act("AW_VALID_WAIT",  # wait for data
                 aw.ready.eq(1),
                 If(w.valid,
+                    NextValue(port.adr, aw.addr[2:]),# really not sure why the [2:]
                     NextState("WRITE"),
                 )
             )

@@ -172,7 +172,9 @@ def test_sram():
         i = dut.bus
 
         def aw_channel():
+            assert (yield i.aw.ready) == 0
             yield from write_aw(0x01, 0x00)
+            # ready should be '1' after aw is valid, not before?
             assert (yield i.aw.ready) == 1
             yield from write_aw(0x02, 0x04)
             yield from write_aw(0x03, 0x08)
@@ -188,7 +190,7 @@ def test_sram():
 
         def b_channel():
             assert attrgetter_b((yield from read_b())) == (0x01, okay)
-            assert attrgetter_b((yield from read_b())) == (0x03, okay)
+            assert attrgetter_b((yield from read_b())) == (0x02, okay)
             assert attrgetter_b((yield from read_b())) == (0x03, okay)
             assert attrgetter_b((yield from read_b())) == (0x04, okay)
             assert attrgetter_b((yield from read_b())) == (0x05, okay)
