@@ -1,5 +1,5 @@
 from operator import attrgetter
-from migen import *
+from migen import *  # noqa
 from . import axi
 
 __all__ = ["SRAM"]
@@ -18,14 +18,17 @@ class SRAM(Module):
             assert(mem_or_size.width <= bus_data_width)
             self.mem = mem_or_size
         else:
-            self.mem = Memory(bus_data_width, mem_or_size//(bus_data_width//8), init=init)
+            self.mem = Memory(bus_data_width,
+                              mem_or_size // (bus_data_width // 8),
+                              init=init
+                              )
 
         # memory
         port = self.mem.get_port(write_capable=not read_only, we_granularity=8)
         self.port = port
         self.specials += self.mem, port
 
-        ###
+        # # #
 
         ar, aw, w, r, b = attrgetter("ar", "aw", "w", "r", "b")(bus)
 
@@ -39,50 +42,53 @@ class SRAM(Module):
         # self.r_addr_incr = axi.Incr(ar)
         # self.w_addr_incr = axi.Incr(aw)
 
-        ### Read
-
-        self.sync += [
-            r.data.eq(port.dat_r),
-            port.adr.eq(ar.addr)
-        ]
+        # # # Read
 
         self.comb += [
+            r.data.eq(port.dat_r),
             r.id.eq(id_),
             r.resp.eq(axi.Response.okay),
         ]
 
         # read control
         self.submodules.read_fsm = read_fsm = FSM(reset_state="IDLE")
-        read_fsm.act("IDLE",
+        read_fsm.act(
+            "IDLE",
             dout_index.eq(0),
-            r.valid.eq(0),  # shall it be reset too on IDLE?
-            # ar.ready.eq(0),
-            If(ar.valid & ~writing,
+            r.valid.eq(0),
+            If(
+                ar.valid & ~writing,
+                NextValue(port.adr, ar.addr[2:]),
                 NextValue(ar.ready, 1),
                 NextValue(id_, ar.id),
-                NextState("READ"),
+                NextState("READ_WAIT"),
             )
         )
-        read_fsm.act("READ",
+
+        read_fsm.act(
+            "READ_WAIT",  # need this state to wait one cycle for data
             NextValue(ar.ready, 0),
+            NextState("READ")
+        )
+
+        read_fsm.act(
+            "READ",
             r.valid.eq(1),
-            r.last.eq(r.valid & dout_index==ar.len),
-            If(r.last & r.ready, # that's a smart way of skipping "LAST" state    
+            r.last.eq(r.valid & dout_index == ar.len),
+            If(
+                r.last & r.ready,  # a smart way of skipping "LAST" state
                 NextState("IDLE")
             )
         )
 
         self.sync += [
-            If(r.ready & r.valid,
-                    dout_index.eq(dout_index+1),
+            If(
+                r.ready & r.valid,
+                dout_index.eq(dout_index + 1),
             )
         ]
 
-        # self.sync += [
-        #     If(read_fsm.ongoing("READ") | read_fsm.ongoing("READ_START"),
-        #     r.last.eq(r.valid & dout_index==ar.len))
-        # ]
-        ### Write
+        # # # Write
 
         if not read_only:
             self.comb += [
@@ -92,14 +98,17 @@ class SRAM(Module):
             ]
 
             self.submodules.write_fsm = write_fsm = FSM(reset_state="IDLE")
-            write_fsm.act("IDLE",
+            write_fsm.act(
+                "IDLE",
                 w.ready.eq(0),
                 aw.ready.eq(0),
-                If(aw.valid,
+                If(
+                    aw.valid,
                     NextValue(aw.ready, 1),
                     NextValue(id_, aw.id),
                     NextValue(writing, 1),
-                    If(w.valid, # skip a state if it's 
+                    If(
+                        w.valid,  # skip a state if data is ready already
                         aw.ready.eq(1),
                         NextValue(port.adr, aw.addr[2:]),
                         NextState("WRITE"),
@@ -109,26 +118,32 @@ class SRAM(Module):
                 )
             )
 
-            write_fsm.act("AW_VALID_WAIT",  # wait for data
+            write_fsm.act(
+                "AW_VALID_WAIT",  # wait for data, if not available yet
                 aw.ready.eq(1),
-                If(w.valid,
-                    NextValue(port.adr, aw.addr[2:]),# really not sure why the [2:]
+                If(
+                    w.valid,
+                    NextValue(port.adr, aw.addr[2:]),  # why the [2:]?
                     NextState("WRITE"),
                 )
             )
 
-            write_fsm.act("WRITE",
+            write_fsm.act(
+                "WRITE",
                 w.ready.eq(1),
                 port.we.eq(w.strb),
-                If(w.ready & w.last,
+                If(
+                    w.ready & w.last,
                     NextValue(writing, 0),
                     NextState("WRITE_RESP")
                 )
             )
 
-            write_fsm.act("WRITE_RESP",
+            write_fsm.act(
+                "WRITE_RESP",
                 b.valid.eq(1),
-                If(b.ready,
+                If(
+                    b.ready,
                     NextState("IDLE")
                 )
             )
