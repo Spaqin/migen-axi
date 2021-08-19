@@ -66,7 +66,6 @@ def test_response(attr, value):
         8,
         16,
     ])
-
 def test_axi2csr(data_width):
     dut = AXI2CSR(bus_csr=csr_bus.Interface(data_width=data_width))
     dut.submodules.sram = csr_bus.SRAM(
@@ -166,7 +165,8 @@ def test_sram():
         size=burst_size(len(dut.bus.r.data) // 8), len_=0,
         burst=Burst.fixed)
     read_r = dut.bus.read_r
-    w_mon = partial(csr_w_mon, dut.port)  # it's not csr but interface is identical
+    # it's not csr but interface is identical
+    w_mon = partial(csr_w_mon, dut.port)
 
     def testbench_sram():
         i = dut.bus
@@ -202,7 +202,8 @@ def test_sram():
             assert attrgetter_csr_w_mon((yield from w_mon())) == (0x02, 0x33)
             assert attrgetter_csr_w_mon((yield from w_mon())) == (0x03, 0x44)
             # unlike csr, data width here is 32 bits, not 8/16
-            assert attrgetter_csr_w_mon((yield from w_mon())) == (0x10, 0x11223344)
+            assert attrgetter_csr_w_mon(
+                (yield from w_mon())) == (0x10, 0x11223344)
             # ok, read it now
             yield from write_ar(0x11, 0x00)
             yield from write_ar(0x22, 0x04)
@@ -215,14 +216,15 @@ def test_sram():
             assert attrgetter_r((yield from read_r())) == (0x22, 0x22, okay, 1)
             assert attrgetter_r((yield from read_r())) == (0x33, 0x33, okay, 1)
             assert attrgetter_r((yield from read_r())) == (0x44, 0x44, okay, 1)
-            assert attrgetter_r((yield from read_r())) == (0x55, 0x11223344, okay, 1)
+            assert attrgetter_r(
+                (yield from read_r())) == (0x55, 0x11223344, okay, 1)
 
         return [
-                aw_channel(), w_channel(), b_channel(), r_channel(), ar_channel(),
-            ]
+            aw_channel(), w_channel(), b_channel(), r_channel(), ar_channel(),
+        ]
 
     run_simulation(dut, testbench_sram(),
-                vcd_name=file_tmp_folder("test_sram.vcd"))
+                   vcd_name=file_tmp_folder("test_sram.vcd"))
 
 
 def test_read_requester():
