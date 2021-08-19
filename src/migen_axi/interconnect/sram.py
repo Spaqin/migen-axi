@@ -111,7 +111,7 @@ class SRAM(Module):
 
             write_fsm.act("WRITE",
                 w.ready.eq(1),
-                port.we.eq(0xF),
+                port.we.eq(w.strb),
                 If(w.ready & w.last,
                     NextState("WRITE_RESP")
                 )
