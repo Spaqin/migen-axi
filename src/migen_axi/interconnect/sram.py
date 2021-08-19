@@ -31,6 +31,8 @@ class SRAM(Module):
 
         id_ = Signal(len(ar.id), reset_less=True)
 
+        writing = Signal()
+
         dout_index = Signal.like(ar.len)
 
         # todo: add support for bursts
@@ -54,33 +56,32 @@ class SRAM(Module):
         read_fsm.act("IDLE",
             dout_index.eq(0),
             r.valid.eq(0),  # shall it be reset too on IDLE?
-            r.last.eq(0),
             # ar.ready.eq(0),
-            If(ar.valid,
+            If(ar.valid & ~writing,
                 NextValue(ar.ready, 1),
                 NextValue(id_, ar.id),
-                NextState("READ_START"),
+                NextState("READ"),
             )
         )
-        read_fsm.act("READ_START",
-            r.valid.eq(1),
-            If(r.ready,
-                NextState("READ"))
-        )
         read_fsm.act("READ",
+            NextValue(ar.ready, 0),
+            r.valid.eq(1),
+            r.last.eq(r.valid & dout_index==ar.len),
             If(r.last & r.ready, # that's a smart way of skipping "LAST" state    
                 NextState("IDLE")
             )
         )
 
         self.sync += [
-            If(r.ready & read_fsm.ongoing("READ"),
+            If(r.ready & r.valid,
                     dout_index.eq(dout_index+1),
-                    If(dout_index==ar.len, r.last.eq(1)) # and update last
             )
-
         ]
 
+        # self.sync += [
+        #     If(read_fsm.ongoing("READ") | read_fsm.ongoing("READ_START"),
+        #     r.last.eq(r.valid & dout_index==ar.len))
+        # ]
         ### Write
 
         if not read_only:
@@ -97,7 +98,14 @@ class SRAM(Module):
                 If(aw.valid,
                     NextValue(aw.ready, 1),
                     NextValue(id_, aw.id),
-                    NextState("AW_VALID_WAIT")
+                    NextValue(writing, 1),
+                    If(w.valid, # skip a state if it's 
+                        aw.ready.eq(1),
+                        NextValue(port.adr, aw.addr[2:]),
+                        NextState("WRITE"),
+                    ).Else(
+                        NextState("AW_VALID_WAIT")
+                    )
                 )
             )
 
@@ -113,6 +121,7 @@ class SRAM(Module):
                 w.ready.eq(1),
                 port.we.eq(w.strb),
                 If(w.ready & w.last,
+                    NextValue(writing, 0),
                     NextState("WRITE_RESP")
                 )
             )
