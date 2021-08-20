@@ -77,7 +77,7 @@ class SRAM(Module):
             r.last.eq(r.valid & dout_index == ar.len),
             If(
                 r.last & r.ready,  # a smart way of skipping "LAST" state
-                If(
+                If( # ar valid? go straight to the next read
                     ar.valid & ~writing,
                     NextValue(port.adr, ar.addr[2:]),
                     NextValue(dout_index, 0),
@@ -151,6 +151,20 @@ class SRAM(Module):
                 b.valid.eq(1),
                 If(
                     b.ready,
-                    NextState("IDLE")
+                    If( # aw valid? go straight for the next write
+                        aw.valid,
+                        NextValue(aw.ready, 1),
+                        NextValue(id_, aw.id),
+                        NextValue(writing, 1),
+                        If(
+                            w.valid,  # skip a state if data is ready already
+                            NextValue(port.adr, aw.addr[2:]),
+                            NextState("WRITE"),
+                        ).Else(
+                            NextState("AW_VALID_WAIT")
+                        )
+                    ).Else(
+                        NextState("IDLE")
+                    )
                 )
             )
