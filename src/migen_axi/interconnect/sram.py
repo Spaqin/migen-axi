@@ -77,7 +77,16 @@ class SRAM(Module):
             r.last.eq(r.valid & dout_index == ar.len),
             If(
                 r.last & r.ready,  # a smart way of skipping "LAST" state
-                NextState("IDLE")
+                If(
+                    ar.valid & ~writing,
+                    NextValue(port.adr, ar.addr[2:]),
+                    NextValue(dout_index, 0),
+                    NextValue(ar.ready, 1),
+                    NextValue(id_, ar.id),
+                    NextState("READ_WAIT"),
+                ).Else(
+                    NextState("IDLE")
+                )
             )
         )
 
@@ -127,7 +136,7 @@ class SRAM(Module):
 
             write_fsm.act(
                 "WRITE",
-                NextValue(aw.ready,0),
+                NextValue(aw.ready, 0),
                 w.ready.eq(1),
                 port.we.eq(w.strb),
                 If(
