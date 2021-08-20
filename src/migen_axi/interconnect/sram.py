@@ -54,11 +54,11 @@ class SRAM(Module):
         self.submodules.read_fsm = read_fsm = FSM(reset_state="IDLE")
         read_fsm.act(
             "IDLE",
-            dout_index.eq(0),
             r.valid.eq(0),
             If(
                 ar.valid & ~writing,
                 NextValue(port.adr, ar.addr[2:]),
+                NextValue(dout_index, 0),
                 NextValue(ar.ready, 1),
                 NextValue(id_, ar.id),
                 NextState("READ_WAIT"),
