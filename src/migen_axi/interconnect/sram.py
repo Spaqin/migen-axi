@@ -101,7 +101,6 @@ class SRAM(Module):
             write_fsm.act(
                 "IDLE",
                 w.ready.eq(0),
-                aw.ready.eq(0),
                 If(
                     aw.valid,
                     NextValue(aw.ready, 1),
@@ -109,7 +108,6 @@ class SRAM(Module):
                     NextValue(writing, 1),
                     If(
                         w.valid,  # skip a state if data is ready already
-                        aw.ready.eq(1),
                         NextValue(port.adr, aw.addr[2:]),
                         NextState("WRITE"),
                     ).Else(
@@ -120,7 +118,6 @@ class SRAM(Module):
 
             write_fsm.act(
                 "AW_VALID_WAIT",  # wait for data, if not available yet
-                aw.ready.eq(1),
                 If(
                     w.valid,
                     NextValue(port.adr, aw.addr[2:]),  # why the [2:]?
@@ -130,6 +127,7 @@ class SRAM(Module):
 
             write_fsm.act(
                 "WRITE",
+                NextValue(aw.ready,0),
                 w.ready.eq(1),
                 port.we.eq(w.strb),
                 If(
