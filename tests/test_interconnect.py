@@ -174,7 +174,6 @@ def test_sram():
         def aw_channel():
             assert (yield i.aw.ready) == 0
             yield from write_aw(0x01, 0x00)
-            # ready should be '1' after aw is valid, not before?
             assert (yield i.aw.ready) == 1
             yield from write_aw(0x02, 0x04)
             yield from write_aw(0x03, 0x08)
@@ -201,7 +200,7 @@ def test_sram():
             assert attrgetter_csr_w_mon((yield from w_mon())) == (0x01, 0x22)
             assert attrgetter_csr_w_mon((yield from w_mon())) == (0x02, 0x33)
             assert attrgetter_csr_w_mon((yield from w_mon())) == (0x03, 0x44)
-            # unlike csr, data width here is 32 bits, not 8/16
+            # unlike csr, data width here can be only 32 bits, not 8/16
             assert attrgetter_csr_w_mon(
                 (yield from w_mon())) == (0x10, 0x11223344)
             # ok, read it now
