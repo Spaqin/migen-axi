@@ -93,8 +93,7 @@ class AXI2CSR(Module):
         ar, aw, w, r, b = attrgetter("ar", "aw", "w", "r", "b")(self.bus)
 
         id_ = Signal(len(ar.id), reset_less=True)
-
-        resp = Signal(2, reset_less=True)
+        resp = Signal(len(r.resp), reset_less=True)
 
         # control
         pending = Signal(reset_less=True)
