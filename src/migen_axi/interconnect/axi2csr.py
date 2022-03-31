@@ -94,6 +94,8 @@ class AXI2CSR(Module):
 
         id_ = Signal(len(ar.id), reset_less=True)
 
+        resp = Signal(2, reset_less=True)
+
         # control
         pending = Signal(reset_less=True)
         self.submodules.fsm = fsm = FSM(reset_state="IDLE")
@@ -103,16 +105,28 @@ class AXI2CSR(Module):
             ar.ready.eq(1),
             If(
                 aw.valid,
-                ar.ready.eq(0),
-                NextValue(internal_csr.adr, aw.addr[2:]),
-                NextValue(id_, aw.id),
-                NextState("WRITE"),
+                If(aw.len != 0,  # bursts not supported
+                    resp.eq(axi.Response.slverr),
+                    NextState("IDLE")
+                ).Else(
+                    ar.ready.eq(0),
+                    resp.eq(axi.Response.okay),
+                    NextValue(internal_csr.adr, aw.addr[2:]),
+                    NextValue(id_, aw.id),
+                    NextState("WRITE")
+                )
             ).Elif(
                 ar.valid,
-                NextValue(internal_csr.adr, ar.addr[2:]),
-                NextValue(id_, ar.id),
-                NextValue(pending, 1),
-                NextState("READ"),
+                If(ar.len != 0,
+                    resp.eq(axi.Response.slverr),
+                    NextState("IDLE")
+                ).Else(
+                    resp.eq(axi.Response.okay),
+                    NextValue(internal_csr.adr, ar.addr[2:]),
+                    NextValue(id_, ar.id),
+                    NextValue(pending, 1),
+                    NextState("READ"),
+                )
             ),
         )
         fsm.act(
@@ -152,8 +166,8 @@ class AXI2CSR(Module):
         self.comb += [
             r.id.eq(id_),
             b.id.eq(id_),
-            r.resp.eq(axi.Response.okay),
-            b.resp.eq(axi.Response.okay),
+            r.resp.eq(resp),
+            b.resp.eq(resp),
             r.last.eq(1),
         ]
         self.sync += [
