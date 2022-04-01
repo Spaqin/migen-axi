@@ -102,30 +102,31 @@ class AXI2CSR(Module):
             "IDLE",
             aw.ready.eq(1),
             ar.ready.eq(1),
+            resp.eq(axi.Response.okay),
             If(
                 aw.valid,
                 If(aw.len != 0,  # bursts not supported
-                    resp.eq(axi.Response.slverr),
-                    NextState("IDLE")
+                    # axi specification requires entire transaction
+                    # to go through even if there's an error
+                    NextValue(resp, axi.Response.slverr),
                 ).Else(
-                    ar.ready.eq(0),
-                    resp.eq(axi.Response.okay),
-                    NextValue(internal_csr.adr, aw.addr[2:]),
-                    NextValue(id_, aw.id),
-                    NextState("WRITE")
-                )
+                    NextValue(resp, axi.Response.okay)
+                ),
+                ar.ready.eq(0),
+                NextValue(internal_csr.adr, aw.addr[2:]),
+                NextValue(id_, aw.id),
+                NextState("WRITE")
             ).Elif(
                 ar.valid,
                 If(ar.len != 0,
-                    resp.eq(axi.Response.slverr),
-                    NextState("IDLE")
+                    NextValue(resp, axi.Response.slverr),
                 ).Else(
-                    resp.eq(axi.Response.okay),
-                    NextValue(internal_csr.adr, ar.addr[2:]),
-                    NextValue(id_, ar.id),
-                    NextValue(pending, 1),
-                    NextState("READ"),
-                )
+                    NextValue(resp, axi.Response.okay),
+                ),
+                NextValue(internal_csr.adr, ar.addr[2:]),
+                NextValue(id_, ar.id),
+                NextValue(pending, 1),
+                NextState("READ"),
             ),
         )
         fsm.act(
@@ -133,7 +134,7 @@ class AXI2CSR(Module):
             If(
                 w.valid,
                 w.ready.eq(1),
-                NextValue(internal_csr.we, 1),
+                NextValue(internal_csr.we, resp == axi.Response.okay),
                 NextState("WRITE_DONE"),
             ),
         )
@@ -154,6 +155,15 @@ class AXI2CSR(Module):
         )
         fsm.act(
             "READ_DONE",
+            r.valid.eq(1),
+            If(
+                r.ready,
+                NextState("IDLE"),
+            )
+        )
+        fsm.act(
+            "READ_ERROR",
+            # AXI specification requires error for the entire transaction
             r.valid.eq(1),
             If(
                 r.ready,
