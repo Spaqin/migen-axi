@@ -91,82 +91,89 @@ class AXI2CSR(Module):
         ###
 
         ar, aw, w, r, b = attrgetter("ar", "aw", "w", "r", "b")(self.bus)
-
+        
+        # Control signals
         id_ = Signal(len(ar.id), reset_less=True)
+        do_read = Signal()
+        do_write = Signal()
+        last_was_read = Signal()
+        port_adr_reg = Signal(len(internal_csr.adr))
+        port_dat_r_latched = Signal(len(self.bus.r.data))
 
-        # control
-        pending = Signal(reset_less=True)
+        # FSM
         self.submodules.fsm = fsm = FSM(reset_state="IDLE")
-        fsm.act(
-            "IDLE",
-            aw.ready.eq(1),
-            ar.ready.eq(1),
-            If(
-                aw.valid,
-                ar.ready.eq(0),
+        fsm.act("IDLE",
+            # If both read and write are pending, alternate based on last operation
+            If(aw.valid & ar.valid,
+                do_write.eq(last_was_read),
+                do_read.eq(~last_was_read),
+            ).Else(
+                do_write.eq(aw.valid),
+                do_read.eq(ar.valid),
+            ),
+            # Handle write transaction
+            aw.ready.eq(last_was_read | ~ar.valid),
+            ar.ready.eq(~last_was_read | ~aw.valid),
+            If(do_write,
                 NextValue(internal_csr.adr, aw.addr[2:]),
                 NextValue(id_, aw.id),
-                NextState("WRITE"),
-            ).Elif(
-                ar.valid,
+                If(w.valid,
+                    w.ready.eq(1),
+                    NextValue(internal_csr.we, 1),
+                    NextState("WRITE_DONE")
+                ).Else(
+                    NextState("WRITE")
+                )
+            ).Elif(do_read,
                 NextValue(internal_csr.adr, ar.addr[2:]),
                 NextValue(id_, ar.id),
-                NextValue(pending, 1),
                 NextState("READ"),
-            ),
-        )
-        fsm.act(
-            "WRITE",
-            If(
-                w.valid,
+            )
+        ),
+        fsm.act("WRITE",
+            internal_csr.adr.eq(port_adr_reg),
+            If(w.valid,
                 w.ready.eq(1),
                 NextValue(internal_csr.we, 1),
-                NextState("WRITE_DONE"),
-            ),
-        )
-        fsm.act(
-            "WRITE_DONE",
+                NextState("WRITE_DONE")
+            )
+        ),
+        fsm.act("WRITE_DONE",
+            NextValue(last_was_read, 0),
             b.valid.eq(1),
-            If(
-                b.ready,
+            b.resp.eq(axi.Response.okay),
+            If(b.ready,
+                NextState("IDLE")
+            )
+        ),
+        fsm.act("READ",
+            NextValue(port_dat_r_latched, internal_csr.dat_r),
+            NextState("READ_DONE")
+        ),
+        fsm.act("READ_DONE",
+            NextValue(last_was_read, 1),
+            r.valid.eq(1),
+            r.data.eq(port_dat_r_latched),
+            r.resp.eq(axi.Response.okay),
+            r.last.eq(1),
+            If(r.ready,
                 NextState("IDLE")
             )
         )
-        fsm.act(
-            "READ",
-            If(
-                ~pending,
-                NextState("READ_DONE"),
-            )
-        )
-        fsm.act(
-            "READ_DONE",
-            r.valid.eq(1),
-            If(
-                r.ready,
-                NextState("IDLE"),
-            )
-        )
 
-        # data path
+        # Data path
         self.comb += [
             r.id.eq(id_),
             b.id.eq(id_),
-            r.resp.eq(axi.Response.okay),
-            b.resp.eq(axi.Response.okay),
-            r.last.eq(1),
         ]
         self.sync += [
-            pending.eq(0),
-            r.data.eq(internal_csr.dat_r),
             internal_csr.we.eq(0),
             internal_csr.dat_w.eq(w.data),
         ]
 
         decoder = AddressDecoder(internal_csr,
-                                 self.slaves,
-                                 register=True
-                                 )
+                               self.slaves,
+                               register=True)
 
         self.submodules += [decoder]
 
